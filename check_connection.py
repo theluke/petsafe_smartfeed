@@ -41,11 +41,19 @@ def load_tokens():
             tokens = json.load(f)
             
         # Check if tokens have expired
+        if 'token_expires' not in tokens:
+            logger.error("Missing token_expires field in tokens.json. Please run get_tokens.py to regenerate.")
+            sys.exit(1)
+            
         if time.time() > tokens['token_expires']:
             print("Error: Tokens have expired. Please run get_tokens.py to get new tokens.")
             sys.exit(1)
             
         # Ensure we're using the correct email
+        if 'email' not in tokens:
+            logger.error("Missing email field in tokens.json. Please run get_tokens.py to regenerate.")
+            sys.exit(1)
+            
         if tokens['email'] != "massavero@gmail.com":
             print(f"Error: tokens.json contains wrong email ({tokens['email']}). "
                   f"Please run get_tokens.py to get tokens for massavero@gmail.com")
