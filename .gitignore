@@ -1,5 +1,4 @@
-.idea/*
-build/*
-dist/*
-petsafe_smartfeed_techzune.egg-info/*
-token.txt
+.env
+__pycache__/
+*.pyc
+venv/

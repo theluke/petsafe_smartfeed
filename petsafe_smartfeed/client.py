@@ -5,7 +5,7 @@ import time
 import boto3
 import requests
 
-from petsafe_smartfeed.devices import DeviceSmartFeed
+from .devices import DeviceSmartFeed
 
 URL_SF_API = "https://platform.cloud.petsafe.net/smart-feed/"
 PETSAFE_CLIENT_ID = "18hpp04puqmgf5nc6o474lcp2g"
@@ -163,7 +163,6 @@ class PetSafeClient:
         -------
         dict
             Authorization response from PetSafe
-
         """
         if refresh_token is not None:
             self.refresh_token = refresh_token
@@ -174,15 +173,15 @@ class PetSafeClient:
             ClientId=PETSAFE_CLIENT_ID,
         )
 
+        # Update only id_token and access_token, keep existing refresh_token
+        auth_result = response["AuthenticationResult"]
+        self.id_token = auth_result["IdToken"]
+        self.access_token = auth_result["AccessToken"]
+        self.token_expires_time = time.time() + auth_result["ExpiresIn"]
+
         if "Session" in response:
             self.session = response["Session"]
 
-        self.id_token = response["AuthenticationResult"]["IdToken"]
-        self.access_token = response["AuthenticationResult"]["AccessToken"]
-        self.refresh_token = response["AuthenticationResult"]["RefreshToken"]
-        self.token_expires_time = (
-            time.time() + response["AuthenticationResult"]["ExpiresIn"]
-        )
         return response
 
     def api_post(self, path="", data=None):
