@@ -7,6 +7,9 @@ import re
 import logging
 import argparse
 import os
+from datetime import datetime, timedelta, timezone  # Import timezone
+import yaml
+import json
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -89,16 +92,16 @@ def get_latest_petsafe_code(email_address, app_password, wait_time=20):
 
     return code
 
-def authenticate_petsafe(email_address, app_password, debug_only=False):
+def authenticate_petsafe(login_email, retrieve_email, app_password, debug_only=False):
+    client = PetSafeClient(email=login_email)  # Ensure client is always defined
     if not debug_only:
-        client = PetSafeClient(email=email_address)
         logger.info("Requesting verification code...")
         client.request_code()
         wait_time = 30
     else:
         wait_time = 0
     
-    code = get_latest_petsafe_code(email_address, app_password, wait_time=wait_time)
+    code = get_latest_petsafe_code(retrieve_email, app_password, wait_time=wait_time)
     logger.info(f"Found verification code: {code}")
     
     if debug_only:
@@ -106,12 +109,19 @@ def authenticate_petsafe(email_address, app_password, debug_only=False):
     
     logger.info("Requesting tokens with verification code...")    
     try:
-        token = client.request_tokens_from_code(code)
+        response = client.request_tokens_from_code(code)
+        logger.debug(f"Token response: {json.dumps(response, indent=2)}")
+        
+        if 'AuthenticationResult' not in response:
+            logger.error(f"Full response content: {json.dumps(response, indent=2)}")
+            raise Exception(f"AuthenticationResult key missing in response: {json.dumps(response, indent=2)}")
+        
+        token = response['AuthenticationResult']
         logger.info("Token request successful")
         return {
-            "id_token": client.id_token,
-            "refresh_token": client.refresh_token,
-            "access_token": client.access_token
+            "id_token": token['IdToken'],
+            "refresh_token": token['RefreshToken'],
+            "access_token": token['AccessToken']
         }
     except Exception as e:
         logger.error(f"Token request failed: {str(e)}")
@@ -123,24 +133,39 @@ if __name__ == "__main__":
     parser.add_argument('--debug', action='store_true', help='Check existing emails only')
     args = parser.parse_args()
 
-    EMAIL = "luca.avalle@gmail.com"
-    APP_PASSWORD = "tgec euvj rvjw htfr"  # Your Gmail App Password
-    
+    # Load configuration
+    config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+
     try:
-        tokens = authenticate_petsafe(EMAIL, APP_PASSWORD, debug_only=args.debug)
+        tokens = authenticate_petsafe(
+            config['login_email'],
+            config['retrieve_email'],
+            config['app_password'], 
+            debug_only=args.debug
+        )
         
         if args.debug:
             print(tokens['debug_code'])
         else:
-            if os.path.exists('codes.txt'):
-                os.remove('codes.txt')
-                print("Previous codes.txt file deleted")
-                
-            with open('codes.txt', 'w') as f:
-                f.write(f"id_token: {tokens['id_token']}\n")
-                f.write(f"refresh_token: {tokens['refresh_token']}\n")
-                f.write(f"access_token: {tokens['access_token']}\n")
-            print("New codes.txt file created")
+            token_file = os.path.join(os.path.dirname(__file__), 'tokens.json')
+            if os.path.exists(token_file):
+                os.remove(token_file)
+                logger.info("Previous tokens.json file deleted")
+            
+            token_data = {
+                "id_token": tokens['id_token'],
+                "refresh_token": tokens['refresh_token'],
+                "access_token": tokens['access_token'],
+                "email": config['login_email'],
+                "token_expires": time.time() + 3600  # Tokens typically expire in 1 hour
+            }
+            
+            with open(token_file, 'w') as f:
+                json.dump(token_data, f, indent=2)
+            logger.info("New tokens.json file created")
+            
     except Exception as e:
         logger.error(f"Operation failed: {str(e)}")
         raise

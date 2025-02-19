@@ -1,9 +1,9 @@
 import json
 import re
 import time
-
 import boto3
 import requests
+import logging
 
 from .devices import DeviceSmartFeed
 
@@ -11,6 +11,7 @@ URL_SF_API = "https://platform.cloud.petsafe.net/smart-feed/"
 PETSAFE_CLIENT_ID = "18hpp04puqmgf5nc6o474lcp2g"
 PETSAFE_REGION = "us-east-1"
 
+logger = logging.getLogger(__name__)
 
 class PetSafeClient:
     def __init__(
@@ -132,22 +133,28 @@ class PetSafeClient:
             Authentication response from PetSafe
 
         """
-        response = self.client.respond_to_auth_challenge(
-            ClientId=PETSAFE_CLIENT_ID,
-            ChallengeName=self.challenge_name,
-            Session=self.session,
-            ChallengeResponses={
-                "ANSWER": re.sub(r"\D", "", code),
-                "USERNAME": self.username if self.username is not None else self.email,
-            },
-        )
-        self.id_token = response["AuthenticationResult"]["IdToken"]
-        self.access_token = response["AuthenticationResult"]["AccessToken"]
-        self.refresh_token = response["AuthenticationResult"]["RefreshToken"]
-        self.token_expires_time = (
-            time.time() + response["AuthenticationResult"]["ExpiresIn"]
-        )
-        return response
+        logger.debug(f"Requesting tokens with code: {code}")
+        try:
+            response = self.client.respond_to_auth_challenge(
+                ClientId=PETSAFE_CLIENT_ID,
+                ChallengeName=self.challenge_name,
+                Session=self.session,
+                ChallengeResponses={
+                    "ANSWER": re.sub(r"\D", "", code),
+                    "USERNAME": self.username if self.username is not None else self.email,
+                },
+            )
+            logger.debug(f"Response from respond_to_auth_challenge: {response}")
+            self.id_token = response["AuthenticationResult"]["IdToken"]
+            self.access_token = response["AuthenticationResult"]["AccessToken"]
+            self.refresh_token = response["AuthenticationResult"]["RefreshToken"]
+            self.token_expires_time = (
+                time.time() + response["AuthenticationResult"]["ExpiresIn"]
+            )
+            return response
+        except Exception as e:
+            logger.error(f"Error in request_tokens_from_code: {str(e)}")
+            raise
 
     def refresh_tokens(self, refresh_token=None):
         """
