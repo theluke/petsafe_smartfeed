@@ -3,4 +3,5 @@ __pycache__/
 *.pyc
 venv/
 config.yaml
-tokens,json
+tokens.json
+last_api_call.log
