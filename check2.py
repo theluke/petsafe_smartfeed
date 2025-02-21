@@ -234,7 +234,8 @@ if __name__ == "__main__":
             print("\n    Food Remaining:")
             print(f"        Percentage: {int(food_status['percent_remaining'])}%")
             print(f"        Weight: {food_status['remaining_grams'] / 10:.1f} hg")
-            print(f"        Days Left: {food_status['days_of_food_left']:.1f} days ({food_status['days_of_food_left'] / 7:.1f} weeks)")
+            days = food_status['days_of_food_left']
+            print(f"        Days Left: {days:.1f} days ({days / 7:.1f} weeks)")
 
             print("\n    Feeding Events (Last 7 Days):")
             feed_done_events = [msg for msg in feed_messages if msg['message_type'] == 'FEED_DONE']
@@ -353,9 +354,10 @@ if __name__ == "__main__":
                         
                         food_status = calculate_food_remaining(feed_messages)
                         print("\n    Food Remaining:")
-                        print(f"        Percentage: {food_status['percent_remaining']}%")
-                        print(f"        Grams: {food_status['remaining_grams']}g")
-                        print(f"        Days Left: {food_status['days_of_food_left']} days")
+                        print(f"        Percentage: {int(food_status['percent_remaining'])}%")
+                        print(f"        Weight: {food_status['remaining_grams'] / 10:.1f} hg")
+                        days = food_status['days_of_food_left']
+                        print(f"        Days Left: {days:.1f} days ({days / 7:.1f} weeks)")
 
                         print("\n    Feeding Events (Last 7 Days):")
 
@@ -366,11 +368,7 @@ if __name__ == "__main__":
                             source = event.get('payload', {}).get('source', 'Unknown')
                             print(f"        {created_at} - {amount} portions ({source})")
 
-                        else:
-                            if args.last_feed_only:
-                                print("NO_RECENT_FEEDS")
-                            else:
-                                print("        No feeding events in the last 7 days")
+
 
                     except Exception as e:
                         print(f"        Error fetching history: {str(e)}")
