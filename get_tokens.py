@@ -7,125 +7,164 @@ import re
 import logging
 import argparse
 import os
-from datetime import datetime, timedelta, timezone  # Import timezone
+from datetime import datetime, timedelta, timezone
 import yaml
 import json
+import traceback
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Configure more detailed logging
+logging.basicConfig(
+    level=logging.DEBUG,  # Changed to DEBUG for more detailed logs
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # Console output
+        logging.FileHandler('petsafe_auth.log')  # Log file for persistent record
+    ]
+)
 logger = logging.getLogger(__name__)
 
+
 def get_latest_petsafe_code(email_address, app_password, wait_time=20):
-    mail = imaplib.IMAP4_SSL("imap.gmail.com")
-    mail.login(email_address, app_password)
-    logger.info(f"Successfully logged into Gmail account: {email_address}")
-    
-    # Try different possible inbox names for Gmail
-    for mailbox in ["INBOX", "[Gmail]/Primary", "Primary"]:
-        try:
-            status, msgs = mail.select(mailbox)
-            if status == 'OK':
-                break
-        except Exception as e:
-            continue
-    else:
-        raise Exception("Could not find a valid inbox")
-
-    if wait_time:
-        time.sleep(wait_time)
-       
-    # First search for unread emails
-    _, messages = mail.search(None, 'UNSEEN')
-    if messages[0]:
-        email_ids = messages[0].split()[-3:]  # Get last 3 unread emails
-
-    # Then search for PetSafe emails
-    _, messages = mail.search(None, 'FROM no-reply@directory.cloud.petsafe.net')
-   
-    if not messages[0]:
-        raise Exception("No verification emails found")
-
-    email_ids = messages[0].split()
-    email_dates = []
-    for email_id in email_ids:
-        _, msg_data = mail.fetch(email_id, "(RFC822)")
-        email_message = email.message_from_bytes(msg_data[0][1])
-        date_str = email_message['Date']
-        date = email.utils.parsedate_to_datetime(date_str)
-        email_dates.append((email_id, date))
-    
-    # Sort by date and get latest
-    latest_email = sorted(email_dates, key=lambda x: x[1])[-1]
-    latest_email_id = latest_email[0]
-    
-    # Get original flags
-    _, msg_flags = mail.fetch(latest_email_id, '(FLAGS)')
-    original_flags = msg_flags[0].decode().split('FLAGS (')[-1].split(')')[0]
-    
-    _, msg_data = mail.fetch(latest_email_id, "(RFC822)")
-    email_message = email.message_from_bytes(msg_data[0][1])
-    
-    code = None
-    if email_message.is_multipart():
-        for part in email_message.walk():
-            if part.get_content_type() == "text/plain":
-                body = part.get_payload(decode=True).decode()
-                patterns = [
-                    r'verification code is: (\d{6})',
-                    r'Your 6-Digit PIN is:\s*(\d{6})',
-                    r'code:\s*(\d{6})'
-                ]
-                for pattern in patterns:
-                    match = re.search(pattern, body)
-                    if match:
-                        code = match.group(1)
-                        break
-                if code:
+    try:
+        logger.info(f"Attempting to connect to Gmail IMAP for {email_address}")
+        mail = imaplib.IMAP4_SSL("imap.gmail.com")
+        mail.login(email_address, app_password)
+        logger.info(f"Successfully logged into Gmail account: {email_address}")
+        
+        # Verbose inbox selection
+        mailboxes_to_try = ["INBOX", "[Gmail]/Primary", "Primary"]
+        for mailbox in mailboxes_to_try:
+            try:
+                logger.debug(f"Attempting to select mailbox: {mailbox}")
+                status, msgs = mail.select(mailbox)
+                if status == 'OK':
+                    logger.info(f"Successfully selected mailbox: {mailbox}")
                     break
+            except Exception as e:
+                logger.warning(f"Failed to select mailbox {mailbox}: {str(e)}")
+        else:
+            raise Exception("Could not find a valid inbox after trying multiple options")
 
-    # Restore the message as unread if it was unread before
-    if '\\Seen' not in original_flags:
-        mail.store(latest_email_id, '-FLAGS', '\\Seen')
+        # Wait for potential email arrival
+        if wait_time:
+            logger.info(f"Waiting {wait_time} seconds for email to arrive")
+            time.sleep(wait_time)
+       
+        # Comprehensive email search
+        logger.debug("Searching for unread emails")
+        _, unread_messages = mail.search(None, 'UNSEEN')
+        
+        logger.debug("Searching for PetSafe emails")
+        _, petsafe_messages = mail.search(None, 'FROM', 'no-reply@directory.cloud.petsafe.net', 'SINCE', (datetime.now() - timedelta(hours=1)).strftime('%d-%b-%Y'))
 
-    mail.logout()
-    if not code:
-        raise Exception("Code not found in email")
+        logger.debug(f"Unread messages: {unread_messages}")
+        logger.debug(f"PetSafe messages: {petsafe_messages}")
 
-    return code
+        if not petsafe_messages[0]:
+            raise Exception("No PetSafe verification emails found")
+
+        # Detailed email processing
+        email_ids = petsafe_messages[0].split()
+        email_dates = []
+        for email_id in email_ids:
+            logger.debug(f"Processing email ID: {email_id}")
+            _, msg_data = mail.fetch(email_id, "(RFC822)")
+            email_message = email.message_from_bytes(msg_data[0][1])
+            date_str = email_message['Date']
+            date = email.utils.parsedate_to_datetime(date_str)
+            email_dates.append((email_id, date))
+        
+        # Sort and get latest email
+        latest_email = sorted(email_dates, key=lambda x: x[1])[-1]
+        latest_email_id = latest_email[0]
+        
+        # Preserve original email flags
+        _, msg_flags = mail.fetch(latest_email_id, '(FLAGS)')
+        original_flags = msg_flags[0].decode().split('FLAGS (')[-1].split(')')[0]
+        logger.debug(f"Original email flags: {original_flags}")
+        
+        # Fetch and process email content
+        _, msg_data = mail.fetch(latest_email_id, "(RFC822)")
+        email_message = email.message_from_bytes(msg_data[0][1])
+        
+        code = None
+        if email_message.is_multipart():
+            for part in email_message.walk():
+                if part.get_content_type() == "text/plain":
+                    body = part.get_payload(decode=True).decode()
+                    logger.debug(f"Email body: {body}")
+                    
+                    patterns = [
+                        r'verification code is: (\d{6})',
+                        r'Your 6-Digit PIN is:\s*(\d{6})',
+                        r'code:\s*(\d{6})'
+                    ]
+                    for pattern in patterns:
+                        match = re.search(pattern, body)
+                        if match:
+                            code = match.group(1)
+                            logger.info(f"Found verification code using pattern: {pattern}")
+                            break
+                    if code:
+                        break
+
+        # Restore message read status
+        if '\\Seen' not in original_flags:
+            logger.debug("Restoring email to unread status")
+            mail.store(latest_email_id, '-FLAGS', '\\Seen')
+
+        mail.logout()
+        
+        if not code:
+            raise Exception("Verification code not found in email")
+
+        return code
+
+    except Exception as e:
+        logger.error(f"Error in get_latest_petsafe_code: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise
+
 
 def authenticate_petsafe(login_email, retrieve_email, app_password, debug_only=False):
-    client = PetSafeClient(email=login_email)  # Ensure client is always defined
-    if not debug_only:
-        logger.info("Requesting verification code...")
-        client.request_code()
-        wait_time = 30
-    else:
-        wait_time = 0
-    
-    code = get_latest_petsafe_code(retrieve_email, app_password, wait_time=wait_time)
-    logger.info(f"Found verification code: {code}")
-    
-    if debug_only:
-        return {"debug_code": code}
-    
-    logger.info("Requesting tokens with verification code...")    
     try:
+        logger.info("Initializing PetSafe authentication")
+        client = PetSafeClient(email=login_email)
+        
+        if not debug_only:
+            logger.info("Requesting verification code from PetSafe")
+            client.request_code()
+            wait_time = 30
+        else:
+            logger.info("Debug mode: Skipping code request")
+            wait_time = 0
+        
+        logger.info(f"Retrieving verification code (wait time: {wait_time} seconds)")
+        code = get_latest_petsafe_code(retrieve_email, app_password, wait_time=wait_time)
+        logger.info(f"Successfully retrieved verification code")
+        
+        if debug_only:
+            return {"debug_code": code}
+        
+        logger.info("Requesting authentication tokens")
         response = client.request_tokens_from_code(code)
-        logger.debug(f"Token response: {json.dumps(response, indent=2)}")
+        logger.debug(f"Full token response: {json.dumps(response, indent=2)}")
         
         if 'AuthenticationResult' not in response:
-            logger.error(f"Full response content: {json.dumps(response, indent=2)}")
-            raise Exception(f"AuthenticationResult key missing in response: {json.dumps(response, indent=2)}")
+            logger.error("Authentication failed: AuthenticationResult missing")
+            raise Exception(f"Invalid response: {json.dumps(response, indent=2)}")
         
         token = response['AuthenticationResult']
-        logger.info("Token request successful")
+        logger.info("Authentication successful")
         return {
             "id_token": token['IdToken'],
             "refresh_token": token['RefreshToken'],
             "access_token": token['AccessToken']
         }
+    
     except Exception as e:
-        logger.error(f"Token request failed: {str(e)}")
-        logger.error(f"Response content: {getattr(e, 'response', 'No response available')}")
+        logger.error(f"Authentication failed: {str(e)}")
+        logger.error(traceback.format_exc())
         raise
 
 if __name__ == "__main__":

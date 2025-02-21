@@ -143,10 +143,48 @@ def process_feed_messages(feed_messages):
     filtered_messages.sort(key=lambda x: datetime.strptime(x['created_at'], '%a %d %b %Y %H:%M'), reverse=True)
     return filtered_messages
 
+def calculate_food_remaining(feed_messages, full_sensor1=30103, full_sensor2=30101, empty_sensor1=5273, empty_sensor2=2231, total_food_grams=2770, portion_grams=10):
+    # Filter only FEED_DONE messages
+    feed_done_messages = [msg for msg in feed_messages if msg['message_type'] == 'FEED_DONE']
+    
+    # Take the last 10 feed messages
+    recent_feeds = feed_done_messages[:10]
+    
+    # Get the most recent sensor readings
+    current_sensor1 = feed_done_messages[0]['payload'].get('sensorReading1Infrared', full_sensor1)
+    current_sensor2 = feed_done_messages[0]['payload'].get('sensorReading2Infrared', full_sensor2)
+    
+    # Calculate percentage of food remaining
+    sensor1_percent = max(0, min(100, (current_sensor1 - empty_sensor1) / (full_sensor1 - empty_sensor1) * 100))
+    sensor2_percent = max(0, min(100, (current_sensor2 - empty_sensor2) / (full_sensor2 - empty_sensor2) * 100))
+    
+    # Average the two sensor readings
+    avg_percent = (sensor1_percent + sensor2_percent) / 2
+    
+    # Calculate remaining food in grams
+    remaining_food_grams = total_food_grams * (avg_percent / 100)
+    
+    # Calculate total food dispensed in recent feeds
+    total_dispensed = sum(feed.get('payload', {}).get('amount', 0) for feed in recent_feeds)
+    
+    # Calculate average daily food consumption
+    avg_daily_consumption = total_dispensed / len(recent_feeds)
+    
+    # Calculate days of food left
+    days_of_food_left = remaining_food_grams / (avg_daily_consumption * portion_grams) if avg_daily_consumption > 0 else 0
+    
+    return {
+        'percent_remaining': round(avg_percent, 2),
+        'remaining_grams': round(remaining_food_grams, 2),
+        'days_of_food_left': round(days_of_food_left, 2)
+    }
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--dry-run', action='store_true', help='Check existing raw results file instead of making API call')
     parser.add_argument('--save', action='store_true', help='Save raw results to a JSON file')
+    parser.add_argument('--last-feed-only', action='store_true', help='Print only the last feeding event without formatting')
     args = parser.parse_args()
 
     can_call, wait_time = can_make_api_call()
@@ -191,16 +229,42 @@ if __name__ == "__main__":
             logger.info("Running in dry-run mode, loading raw results from file")
             feed_messages = load_raw_results('raw_feed_messages.json')
             filtered_messages = process_feed_messages(feed_messages)
-            
+
+            food_status = calculate_food_remaining(feed_messages)
+            print("\n    Food Remaining:")
+            print(f"        Percentage: {int(food_status['percent_remaining'])}%")
+            print(f"        Weight: {food_status['remaining_grams'] / 10:.1f} hg")
+            print(f"        Days Left: {food_status['days_of_food_left']:.1f} days ({food_status['days_of_food_left'] / 7:.1f} weeks)")
+
+            print("\n    Feeding Events (Last 7 Days):")
+            feed_done_events = [msg for msg in feed_messages if msg['message_type'] == 'FEED_DONE']
+            for event in feed_done_events:
+                created_at = event.get('created_at', 'Unknown Date')
+                amount = event.get('payload', {}).get('amount', 'Unknown')
+                source = event.get('payload', {}).get('source', 'Unknown')
+                print(f"        {created_at} - {amount} portions ({source})")
+
             if filtered_messages:
-                print("\n        Recent feeding events:")
-                for msg in filtered_messages:
-                    feed_type = msg.pop('feed_type')
-                    print(f"\n        {feed_type}")
-                    for key, value in msg.items():
-                        print(f"        {key}: {value}")
+                if args.last_feed_only:
+                    # Print only the most recent feed (first item since they're sorted newest first)
+                    last_feed = filtered_messages[0]
+                    feed_type = last_feed.get('feed_type', 'UNKNOWN FEED')
+                    created_at = last_feed.get('created_at', 'unknown')
+                    amount = last_feed.get('amount', 'unknown')
+                    print(f"{created_at} {feed_type} {amount}")
+                else:
+                    # Print normal formatted output
+                    for msg in filtered_messages:
+                        feed_type = msg.pop('feed_type')
+                        print(f"\n        {feed_type}")
+                        for key, value in msg.items():
+                            print(f"        {key}: {value}")
             else:
-                print("        No feeding events in the last 7 days")
+                if args.last_feed_only:
+                    print("NO_RECENT_FEEDS")
+                else:
+                    print("        No feeding events in the last 7 days")
+
         else:
             print("\nAttempting to fetch feeders...")
             feeders = client.feeders
@@ -284,17 +348,44 @@ if __name__ == "__main__":
                         if args.save:
                             save_raw_results(feed_messages, 'raw_feed_messages.json')
 
+                        # Process the feed messages before displaying them
                         filtered_messages = process_feed_messages(feed_messages)
                         
+                        food_status = calculate_food_remaining(feed_messages)
+                        print("\n    Food Remaining:")
+                        print(f"        Percentage: {food_status['percent_remaining']}%")
+                        print(f"        Grams: {food_status['remaining_grams']}g")
+                        print(f"        Days Left: {food_status['days_of_food_left']} days")
+
+                        print("\n    Feeding Events (Last 7 Days):")
+
+                        feed_done_events = [msg for msg in feed_messages if msg['message_type'] == 'FEED_DONE']
+                        for event in feed_done_events:
+                            created_at = event.get('created_at', 'Unknown Date')
+                            amount = event.get('payload', {}).get('amount', 'Unknown')
+                            source = event.get('payload', {}).get('source', 'Unknown')
+                            print(f"        {created_at} - {amount} portions ({source})")
+
                         if filtered_messages:
-                            print("\n        Recent feeding events:")
-                            for msg in filtered_messages:
-                                feed_type = msg.pop('feed_type')
-                                print(f"\n        {feed_type}")
-                                for key, value in msg.items():
-                                    print(f"        {key}: {value}")
+                            if args.last_feed_only:
+                                # Print only the most recent feed (first item since they're sorted newest first)
+                                last_feed = filtered_messages[0]
+                                feed_type = last_feed.get('feed_type', 'UNKNOWN FEED')
+                                created_at = last_feed.get('created_at', 'unknown')
+                                amount = last_feed.get('amount', 'unknown')
+                                print(f"{created_at} {feed_type} {amount}")
+                            else:
+                                # Print normal formatted output
+                                for msg in filtered_messages:
+                                    feed_type = msg.pop('feed_type')
+                                    print(f"\n        {feed_type}")
+                                    for key, value in msg.items():
+                                        print(f"        {key}: {value}")
                         else:
-                            print("        No feeding events in the last 7 days")
+                            if args.last_feed_only:
+                                print("NO_RECENT_FEEDS")
+                            else:
+                                print("        No feeding events in the last 7 days")
 
                     except Exception as e:
                         print(f"        Error fetching history: {str(e)}")
