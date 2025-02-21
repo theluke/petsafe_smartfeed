@@ -7,3 +7,4 @@ tokens.*
 last_api_call.log
 Pipfile
 Pipfile.lock
+*.log

@@ -366,21 +366,6 @@ if __name__ == "__main__":
                             source = event.get('payload', {}).get('source', 'Unknown')
                             print(f"        {created_at} - {amount} portions ({source})")
 
-                        if filtered_messages:
-                            if args.last_feed_only:
-                                # Print only the most recent feed (first item since they're sorted newest first)
-                                last_feed = filtered_messages[0]
-                                feed_type = last_feed.get('feed_type', 'UNKNOWN FEED')
-                                created_at = last_feed.get('created_at', 'unknown')
-                                amount = last_feed.get('amount', 'unknown')
-                                print(f"{created_at} {feed_type} {amount}")
-                            else:
-                                # Print normal formatted output
-                                for msg in filtered_messages:
-                                    feed_type = msg.pop('feed_type')
-                                    print(f"\n        {feed_type}")
-                                    for key, value in msg.items():
-                                        print(f"        {key}: {value}")
                         else:
                             if args.last_feed_only:
                                 print("NO_RECENT_FEEDS")
