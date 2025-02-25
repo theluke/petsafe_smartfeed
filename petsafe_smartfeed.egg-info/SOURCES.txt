@@ -5,6 +5,8 @@ petsafe_smartfeed/__init__.py
 petsafe_smartfeed/__main__.py
 petsafe_smartfeed/client.py
 petsafe_smartfeed/devices.py
+petsafe_smartfeed/feeder_status.py
+petsafe_smartfeed/get_tokens.py
 petsafe_smartfeed.egg-info/PKG-INFO
 petsafe_smartfeed.egg-info/SOURCES.txt
 petsafe_smartfeed.egg-info/dependency_links.txt

@@ -1,0 +1,5 @@
+name: "PetSafe Smart Feeder"
+packageKey: "petsafe-feeder"
+permissions:
+  lan: {}
+  discovery: {}
