@@ -1,8 +1,0 @@
-{
-  "name": "petsafe-smart-feeder",
-  "packageKey": "petsafe-feeder",
-  "description": "Edge driver for PetSafe Smart Feeder v2",
-  "vendorId": "PetSafe",
-  "st-min-api": "2021-04-01",
-  "version": "1.0.1"
-}

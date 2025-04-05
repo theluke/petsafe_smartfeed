@@ -1,5 +1,0 @@
-cd /home/luca/petsafe_st/petsafe_smartfeed
-echo "flask
-pyyaml
-requests
-petsafe-smartfeed" > bridge/requirements.txt
